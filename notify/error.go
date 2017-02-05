@@ -1,0 +1,5 @@
+package notify
+
+const ERROR_NOTIFY = 0x50000
+
+const ERROR_NOTIFY_NOT_FOUND_ID = ERROR_NOTIFY + 1
