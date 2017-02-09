@@ -1,19 +1,12 @@
 package notify
 
 import (
-	"bytes"
-	"crypto/md5"
-	"crypto/sha1"
 	"crypto/tls"
-	"encoding/hex"
 	"fmt"
 	"github.com/kkserver/kk-lib/kk"
 	"github.com/kkserver/kk-lib/kk/app"
-	"github.com/kkserver/kk-lib/kk/dynamic"
-	"github.com/kkserver/kk-lib/kk/json"
 	"log"
 	"net/http"
-	"sort"
 	"time"
 )
 
@@ -48,7 +41,7 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 					return err
 				}
 
-				rows, err := kk.DBQuery(db, a.GetNotifyTable(), a.GetPrefix(), " WHERE status=? ORDER BY ASC", NotifyStatusNone)
+				rows, err := kk.DBQuery(db, a.GetNotifyTable(), a.GetPrefix(), " WHERE status=? ORDER BY id ASC", NotifyStatusNone)
 
 				if err != nil {
 					return err
@@ -67,7 +60,7 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 						return err
 					}
 
-					if v.Ctime+v.Expires <= time.Now().Unix() {
+					if v.Expires > 0 && v.Ctime+v.Expires <= time.Now().Unix() {
 
 						v.Status = NotifyStatusExpires
 
@@ -94,7 +87,7 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 								},
 							}
 
-							resp, err := client.Post(fmt.Sprintf("%s?code=%s", v.Url, v.Code), v.Type, bytes.NewReader([]byte(v.Content)))
+							resp, err := client.Get(fmt.Sprintf("%s?code=%s", v.Url, v.Code))
 
 							if err != nil {
 								return err
@@ -122,12 +115,13 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 
 							v.Code = ""
 							v.Count = v.Count + 1
+							v.Errmsg = err.Error()
 
-							if v.Count >= v.MaxCount {
+							if v.MaxCount > 0 && v.Count >= v.MaxCount {
 								v.Status = NotifyStatusFail
-								_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"code": true, "status": true, "count": true})
+								_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"code": true, "status": true, "count": true, "errmsg": true})
 							} else {
-								_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"code": true, "count": true})
+								_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"code": true, "count": true, "errmsg": true})
 							}
 
 						} else {
@@ -144,14 +138,142 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 			}()
 
 			if err != nil {
-				log.Println("NotifyService", "Runloop", err)
+				log.Println("NotifyService", "Runloop", "Fail", err)
+			} else {
+				log.Println("NotifyService", "Runloop", "OK")
 			}
 
-			time.Sleep(6 * time.Second)
+			select {
+			case <-S.in:
+				continue
+			default:
+				go func() {
+					time.Sleep(6 * time.Second)
+					S.in <- true
+				}()
+			}
 
+			<-S.in
 		}
 
 	}()
+
+	return nil
+}
+
+func (S *NotifyService) HandleNotifyCreateTask(a INotifyApp, task *NotifyCreateTask) error {
+
+	var db, err = a.GetDB()
+
+	if err != nil {
+		task.Result.Errno = ERROR_NOTIFY
+		task.Result.Errmsg = err.Error()
+		return nil
+	}
+
+	v := Notify{}
+
+	v.Url = task.Url
+	v.Type = task.Type
+	v.Content = task.Content
+	v.MaxCount = task.MaxCount
+	v.Expires = task.Expires
+	v.Ctime = time.Now().Unix()
+
+	_, err = kk.DBInsert(db, a.GetNotifyTable(), a.GetPrefix(), &v)
+
+	if err != nil {
+		task.Result.Errno = ERROR_NOTIFY
+		task.Result.Errmsg = err.Error()
+		return nil
+	}
+
+	S.in <- true
+
+	task.Result.Notify = &v
+
+	return nil
+}
+
+func (S *NotifyService) HandleNotifyTask(a INotifyApp, task *NotifyTask) error {
+
+	var db, err = a.GetDB()
+
+	if err != nil {
+		task.Result.Errno = ERROR_NOTIFY
+		task.Result.Errmsg = err.Error()
+		return nil
+	}
+
+	v := Notify{}
+
+	if task.Id != 0 {
+
+		rows, err := kk.DBQuery(db, a.GetNotifyTable(), a.GetPrefix(), " WHERE id=?", task.Id)
+
+		if err != nil {
+			task.Result.Errno = ERROR_NOTIFY
+			task.Result.Errmsg = err.Error()
+			return nil
+		}
+
+		defer rows.Close()
+
+		if rows.Next() {
+
+			scanner := kk.NewDBScaner(&v)
+
+			err = scanner.Scan(rows)
+
+			if err != nil {
+				task.Result.Errno = ERROR_NOTIFY
+				task.Result.Errmsg = err.Error()
+				return nil
+			}
+
+		} else {
+			task.Result.Errno = ERROR_NOTIFY
+			task.Result.Errmsg = "Not Found notify"
+			return nil
+		}
+
+	} else if task.Code != "" {
+
+		rows, err := kk.DBQuery(db, a.GetNotifyTable(), a.GetPrefix(), " WHERE code=?", task.Code)
+
+		if err != nil {
+			task.Result.Errno = ERROR_NOTIFY
+			task.Result.Errmsg = err.Error()
+			return nil
+		}
+
+		defer rows.Close()
+
+		if rows.Next() {
+
+			scanner := kk.NewDBScaner(&v)
+
+			err = scanner.Scan(rows)
+
+			if err != nil {
+				task.Result.Errno = ERROR_NOTIFY
+				task.Result.Errmsg = err.Error()
+				return nil
+			}
+
+		} else {
+			task.Result.Errno = ERROR_NOTIFY
+			task.Result.Errmsg = "Not Found notify"
+			return nil
+		}
+
+	} else {
+		task.Result.Errno = ERROR_NOTIFY_NOT_FOUND_ID
+		task.Result.Errmsg = "Not Found notify id"
+		return nil
+	}
+
+	task.Result.Notify = &v
 
 	return nil
 }

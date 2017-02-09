@@ -28,6 +28,7 @@ type Notify struct {
 	Count    int    `json:"count"`
 	MaxCount int    `json:"maxCount"`
 	Expires  int64  `json:"expires"`
+	Errmsg   string `json:"errmsg"`
 	Ctime    int64  `json:"ctime"`
 }
 
@@ -70,7 +71,7 @@ func (C *NotifyApp) GetNotifyTable() *kk.DBTable {
 	return &C.NotifyTable
 }
 
-func (C *WeixinApp) GetCA() *x509.CertPool {
+func (C *NotifyApp) GetCA() *x509.CertPool {
 	if C.ca == nil {
 		C.ca = x509.NewCertPool()
 		C.ca.AppendCertsFromPEM(pemCerts)

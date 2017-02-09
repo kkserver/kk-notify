@@ -16,17 +16,17 @@ type NotifyCreateTask struct {
 	Content  string `json:"content"`
 	MaxCount int    `json:"maxCount"`
 	Expires  int64  `json:"expires"`
-	Result   NotifyTaskResult
+	Result   NotifyCreateTaskResult
 }
 
-func (task *NotifyTask) GetResult() interface{} {
+func (task *NotifyCreateTask) GetResult() interface{} {
 	return &task.Result
 }
 
-func (task *NotifyTask) GetInhertType() string {
+func (task *NotifyCreateTask) GetInhertType() string {
 	return "notify"
 }
 
-func (task *NotifyTask) GetClientName() string {
+func (task *NotifyCreateTask) GetClientName() string {
 	return "Notify.Create"
 }
