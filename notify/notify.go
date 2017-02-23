@@ -14,6 +14,7 @@ import (
 )
 
 const NotifyStatusNone = 0
+const NotifyStatusLoading = 1
 const NotifyStatusOK = 200
 const NotifyStatusExpires = 300
 const NotifyStatusFail = 400

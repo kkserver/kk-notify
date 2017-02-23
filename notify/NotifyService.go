@@ -27,6 +27,15 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 
 	S.in = make(chan bool, 1024)
 
+	{
+		db, err := a.GetDB()
+
+		if err == nil {
+			log.Println(fmt.Sprintf("UPDATE %s%s SET status=? WHERE status=?", a.GetPrefix(), a.GetNotifyTable().Name))
+			db.Exec(fmt.Sprintf("UPDATE %s%s SET status=? WHERE status=?", a.GetPrefix(), a.GetNotifyTable().Name), NotifyStatusNone, NotifyStatusLoading)
+		}
+	}
+
 	go func() {
 
 		for {
@@ -61,12 +70,12 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 					}
 
 					if v.Expires > 0 && v.Ctime+v.Expires <= time.Now().Unix() {
-
 						v.Status = NotifyStatusExpires
-
 						_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"status": true})
-
 						continue
+					} else {
+						v.Status = NotifyStatusLoading
+						_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"status": true})
 					}
 
 					go func(v Notify) {
@@ -121,7 +130,8 @@ func (S *NotifyService) HandleInitTask(a INotifyApp, task *app.InitTask) error {
 								v.Status = NotifyStatusFail
 								_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"code": true, "status": true, "count": true, "errmsg": true})
 							} else {
-								_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"code": true, "count": true, "errmsg": true})
+								v.Status = NotifyStatusNone
+								_, _ = kk.DBUpdateWithKeys(db, a.GetNotifyTable(), a.GetPrefix(), &v, map[string]bool{"code": true, "count": true, "errmsg": true, "status": true})
 							}
 
 						} else {
